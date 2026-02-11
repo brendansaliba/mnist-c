@@ -1,0 +1,160 @@
+#include <unistd.h>
+#include <base.h>
+#include <arena.h>
+#include <sys/mman.h>
+
+mem_arena* arena_create(uint64_t reserve_size, uint64_t commit_size) {
+    uint32_t pagesize = plat_get_pagesize();
+    reserve_size = ALIGN_UP_POW2(reserve_size, pagesize);
+    commit_size = ALIGN_UP_POW2(commit_size, pagesize);
+
+    mem_arena* arena = plat_mem_reserve(reserve_size);
+
+    if (!plat_mem_commit(arena, commit_size)) {
+        printf("Memory commit failed. Aborting...");
+        abort();
+    }
+
+    arena->reserve_size = reserve_size;
+    arena->commit_size = commit_size;
+    arena->pos = ARENA_BASE_POS;
+    arena->commit_pos = commit_size;
+
+    return arena;
+}
+
+void arena_destroy(mem_arena* arena) {
+    plat_mem_release(arena, arena->reserve_size);
+}
+
+void* arena_push(mem_arena* arena, uint64_t size, bool non_zero) {
+    uint64_t pos_aligned = ALIGN_UP_POW2(arena->pos, ARENA_ALIGN);
+    uint64_t new_pos = pos_aligned + size;
+
+    if (new_pos > arena->reserve_size) {
+        printf("New position is greater than the arena capacity. Aborting...");
+        abort();
+    }
+
+    if (new_pos > arena->commit_pos) {
+        uint64_t new_commit_pos = new_pos;
+        new_commit_pos += arena->commit_size - 1;
+        new_commit_pos -= new_commit_pos % arena->commit_size;
+        new_commit_pos = MIN(new_commit_pos, arena->reserve_size);
+
+        uint8_t* mem = (uint8_t*)arena + arena->commit_pos;
+        uint64_t commit_size = new_commit_pos - arena->commit_pos;
+
+        if (!plat_mem_commit(mem, commit_size)) {
+            printf("Memory commit failed. Aborting...");
+            abort();
+        }
+
+        arena->commit_pos = new_commit_pos;
+    }
+
+    arena->pos = new_pos;
+
+    uint8_t* out = (uint8_t*)arena + pos_aligned;
+    
+    if (!non_zero) {
+        memset(out, 0 ,size);
+    }
+
+    return out;
+}
+
+void arena_pop(mem_arena* arena, uint64_t size) {
+    size = MIN(size, arena->pos - ARENA_BASE_POS);
+    arena->pos -= size;   
+}
+
+void arena_pop_to(mem_arena* arena, uint64_t pos) {
+    uint64_t size = pos < arena->pos ? arena->pos - pos : 0;
+    arena_pop(arena, size);
+}
+
+void arena_pop_clear(mem_arena* arena) {
+    arena_pop_to(arena, ARENA_BASE_POS);
+}
+
+mem_arena_temp arena_temp_begin(mem_arena* arena) {
+    return (mem_arena_temp) {
+        .arena = arena,
+        .start_pos = arena->pos
+    };
+}
+
+void arena_temp_end(mem_arena_temp temp) {
+    arena_pop_to(temp.arena, temp.start_pos);
+}
+
+__thread static mem_arena* _scratch_arenas[2] = {NULL, NULL};
+
+mem_arena_temp arena_scratch_get(mem_arena** conflicts, uint32_t num_conflicts) {
+    int32_t scratch_index  = -1;
+
+    for (int32_t i = 0; i<2; i++) {
+        bool conflict_found = false;
+
+        for (uint32_t j = 0; j < num_conflicts; j++) {
+            if (_scratch_arenas[i] == conflicts[j]) {
+                conflict_found = true;
+                break;
+            }
+        }
+
+        if (!conflict_found) {
+            scratch_index = i;
+            break;
+        }
+    }
+
+    if (scratch_index == -1) {
+        return (mem_arena_temp) { 0 };
+    }
+
+    mem_arena** selected = &_scratch_arenas[scratch_index];
+
+    if (*select == NULL) {
+        *selected = arena_create(MiB(64), MiB(1));
+    }
+
+    return arena_temp_begin(*selected);
+}
+
+void arena_scratch_release(mem_arena_temp scratch) {
+    arena_temp_end(scratch);
+}
+
+
+uint32_t plat_get_pagesize(void) {
+    int size = getpagesize();
+    return size;
+}
+
+void* plat_mem_reserve(uint64_t size) {
+    void* out = mmap(NULL, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (out == MAP_FAILED) {
+        return NULL;
+    }
+    return out;
+}
+
+bool plat_mem_commit(void* ptr, uint64_t size) {
+    int32_t ret = mprotect(ptr, size, PROT_READ | PROT_WRITE);
+    return ret == 0;
+}
+
+
+bool plat_mem_decommit(void* ptr, uint64_t size) {
+    int32_t ret = mprotect(ptr, size, PROT_NONE);
+    if (ret != 0) return false;
+    ret = madvise(ptr, size, MADV_DONTNEED);
+    return ret == 0;
+}
+
+bool plat_mem_release(void* ptr, uint64_t size) {
+    int32_t ret = munmap(ptr, size);
+    return ret == 0;
+}
