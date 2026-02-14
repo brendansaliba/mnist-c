@@ -1,6 +1,4 @@
 #include <unistd.h>
-#include <base.h>
-#include <arena.h>
 #include <sys/mman.h>
 
 mem_arena* arena_create(uint64_t reserve_size, uint64_t commit_size) {

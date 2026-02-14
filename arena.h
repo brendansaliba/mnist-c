@@ -27,3 +27,15 @@ void arena_temp_end(mem_arena_temp temp);
 
 mem_arena_temp arena_scratch_get(mem_arena** conflicts, uint32_t num_conflicts);
 void arena_scratch_release(mem_arena_temp scratch);
+
+#define PUSH_STRUCT(arena, T) (T*)arena_push((arena), sizeof(T), false);
+#define PUSH_STRUCT_NZ(arena, T) (T*)arena_push((arena), sizeof(T), true);
+#define PUSH_ARRAY(arena, T, n) (T*)arena_push((arena), sizeof(T) * (n), false);
+#define PUSH_ARRAY_NZ(arena, T, n) (T*)arena_push((arena), sizeof(T) * (n), true);
+
+uint32_t plat_get_pagesize(void);
+
+void* plat_mem_reserve(uint64_t size);
+bool plat_mem_commit(void* ptr, uint64_t size);
+bool plat_mem_decommit(void* ptr, uint64_t size);
+bool plat_mem_release(void* ptr, uint64_t size);
