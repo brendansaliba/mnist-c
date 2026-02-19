@@ -194,9 +194,48 @@ bool mat_mul(matrix* out, const matrix* a, const, matrix* b, bool zero_out, bool
     return true;
 } 
 
-bool mat_relu(matrix* out, const matrix* in);
-bool mat_softmax(matrix* out, const matrix* in);
-bool mat_cross_entropy(matrix* out, const matrix* p, const matrix* q);
+bool mat_relu(matrix* out, const matrix* in) {
+    if (out->rows != in->rows || out->cols != in->cols) {
+        return false;
+    }
+
+    uint64_t size = (uint64_t)out->rows * out->cols;
+    for (uint64_t i = 0; i < size; i++) {
+        out->data[i] = MAX(0, in->data[i]);
+    }
+
+    return true;
+}
+
+bool mat_softmax(matrix* out, const matrix* in) {
+    if (out->rows != in->rows || out->cols != in->cols) {
+        return false;
+    }
+
+    uint64_t size = (uint64_t)out->rows * out->cols;
+    float sum = 0.0f;
+    for (uint64_t i = 0; i < size; i++) {
+        out->data[i] = expf(in->data[i]);
+        sum += out->data[i];
+    }
+
+    mat_scale(out, 1.0f/sum);
+
+    return true;
+}
+
+bool mat_cross_entropy(matrix* out, const matrix* p, const matrix* q) {
+    if (p->rows != q->rows || p->cols != q->cols) { return false; }
+    if (out->rows != p->rows || out->cols != p->cols) { return false; }
+
+    uint64_t size = (uint64_t)out->rows * out->cols;
+    for (uint64_t i = 0; i < size; i++) {
+        out->data[i] = p->data[i] == 0.0f ? 0.0f : p->data[i] * -logf(q->data[i]);
+    }
+
+    return true;
+}
+
 bool mat_relu_add_grad(matrix* out, const matrix* in);
 bool mat_softmax_add_grad(matrix* out, const matrix* softmax_out);
 bool mat_cross_entropy_add_grad(matrix* out, const matrix* p, const matrix* q);

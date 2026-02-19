@@ -1,1 +1,8 @@
 build/
+.venv
+**/.venv
+__pycache__
+**/__pycache
+.DS_Store
+**/.DS_Store
+dataset/
