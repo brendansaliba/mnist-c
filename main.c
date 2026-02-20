@@ -11,6 +11,7 @@ typedef struct {
 } matrix;
 
 matrix* mat_create(mem_arena* arena, uint32_t rows, uint32_t cols);
+matrix* mat_load(mem_arena* arena, uint32_t rows, uint32_t cols, const char* filename);
 bool mat_copy(matrix* dst, matrix* src);
 void mat_clear(matrix* mat);
 void mat_fill(matrix* mat, float x);
@@ -23,7 +24,7 @@ void _mat_mul_nn(matrix* out, const matrix* a, const matrix* b);
 void _mat_mul_nt(matrix* out, const matrix* a, const matrix* b);
 void _mat_mul_tn(matrix* out, const matrix* a, const matrix* b);
 void _mat_mul_tt(matrix* out, const matrix* a, const matrix* b);
-bool mat_mul(matrix* out, const matrix* a, const, matrix* b, bool zero_out, bool transpose_a, bool transpose_b);
+bool mat_mul(matrix* out, const matrix* a, const matrix* b, bool zero_out, bool transpose_a, bool transpose_b);
 
 bool mat_relu(matrix* out, const matrix* in);
 bool mat_softmax(matrix* out, const matrix* in);
@@ -32,15 +33,53 @@ bool mat_relu_add_grad(matrix* out, const matrix* in);
 bool mat_softmax_add_grad(matrix* out, const matrix* softmax_out);
 bool mat_cross_entropy_add_grad(matrix* out, const matrix* p, const matrix* q);
 
+void draw_mnist_digit(float* data);
 
 int main() {
     mem_arena* perm_arena = arena_create(GiB(1), MiB(1));
+
+    matrix* train_images = mat_load(perm_arena, 60000, 784, "dataset/train_images.mat");
+    matrix* test_images = mat_load(perm_arena, 10000, 784, "dataset/test_images.mat");
+    matrix* train_labels = mat_create(perm_arena, 60000, 10);
+    matrix* test_labels = mat_create(perm_arena, 10000, 10);
+
+    {
+        matrix* train_labels_file = mat_load(perm_arena, 60000, 1, "dataset/train_labels.mat");
+        matrix* test_labels_file = mat_load(perm_arena, 10000, 1, "dataset/test_labels.mat");
+
+        for (uint32_t i = 0; i < 60000; i++) {
+            uint32_t num = train_labels_file->data[i];
+            train_labels->data[i * 10 + num] = 1.0f;
+        }
+
+        for (uint32_t i = 0; i < 10000; i++) {
+            uint32_t num = test_labels_file->data[i];
+            test_labels->data[i * 10 + num] = 1.0f;
+        }
+    }
+
+    draw_mnist_digit(train_images->data);
+    for (uint32_t i = 0; i < 10; i++) {
+        printf("%.0f ", train_labels->data[i]);
+    }
+    printf("\n");
     
     arena_destroy(perm_arena);
     
     return 0;
 }
 
+void draw_mnist_digit(float* data) {
+    for (uint32_t y = 0; y < 28; y++) {
+        for (uint32_t x = 0; x < 28; x++) {
+            float num = data[ x + y * 28];
+            uint32_t col = 232 + (uint32_t)(num * 24);
+            printf("\x1b[48;5;%dm ", col);
+        }
+        printf("\n");
+    }
+    printf("\x1b[0m");
+}
 
 matrix* mat_create(mem_arena* arena, uint32_t rows, uint32_t cols) {
     matrix* mat = PUSH_STRUCT(arena, matrix);
@@ -49,6 +88,24 @@ matrix* mat_create(mem_arena* arena, uint32_t rows, uint32_t cols) {
     mat->cols = cols;
     mat->data = PUSH_ARRAY(arena, float, (uint64_t)rows * cols);
     
+    return mat;
+}
+
+matrix* mat_load(mem_arena* arena, uint32_t rows, uint32_t cols, const char* filename) {
+    matrix* mat = mat_create(arena, rows, cols);
+
+    FILE* f = fopen(filename, "rb");
+
+    fseek(f, 0, SEEK_END);
+    uint64_t size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    size = MIN(size, sizeof(float)* rows * cols);
+
+    fread(mat->data, 1, size, f);
+
+    fclose(f);
+
     return mat;
 }
 
@@ -170,7 +227,7 @@ void _mat_mul_tt(matrix* out, const matrix* a, const matrix* b) {
 
 }
 
-bool mat_mul(matrix* out, const matrix* a, const, matrix* b, bool zero_out, bool transpose_a, bool transpose_b) {
+bool mat_mul(matrix* out, const matrix* a, const matrix* b, bool zero_out, bool transpose_a, bool transpose_b) {
     uint32_t a_rows = transpose_a ? a->cols : a->rows;
     uint32_t a_cols = transpose_a ? a->rows : a->cols;
     uint32_t b_rows = transpose_b ? b->cols : b->rows;
